@@ -36,7 +36,8 @@ project "Core"
         "opengl32",
         "gdi32",
         "winmm",
-        "freetype"
+        "freetype",
+        "shell32"
     }
 
     defines "SFML_STATIC"
@@ -59,6 +60,7 @@ project "Core"
     filter "configurations:Release"
 		defines { "NDEBUG", "NCONSOLE" }
 		optimize "On"
+        kind "WindowedApp"
         links
         {
             "zlibstatic",

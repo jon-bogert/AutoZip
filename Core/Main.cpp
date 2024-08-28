@@ -6,6 +6,8 @@
 #include <SFML/System.hpp>
 #include <SFML/Window.hpp>
 
+#include <Windows.h>
+
 #include "BasierSquare_Medium_otf.h"
 
 #include <iostream>
@@ -14,33 +16,52 @@
 #include <fstream>
 
 #include "Timer.h"
+#include "EntryPoint.h"
+#include "AppData.h"
 
 #ifdef _DEBUG
 #define DBG_FILE_PATH "C:/Users/jonbo/Desktop/ableton_live_suite_11.3.25_64.zip";
 //#define DBG_FILE_PATH "C:/Users/jonbo/Desktop/minizip-master.zip";
 #endif // _DEBUG
 
+void ErrorMsg(const std::string& msg)
+{
+    MessageBoxA(NULL, msg.c_str(), "AutoUnzip - Error", MB_OK | MB_ICONERROR);
+}
+
 class App
 {
     const uint32_t WIN_WIDTH = 500;
-    const uint32_t WIN_HEIGHT = 250;
-    const float HANDLE_HEIGHT = 25.f;
+    const uint32_t WIN_HEIGHT = 200;
+    const float HANDLE_HEIGHT = 35.f;
 
     const float UPDATE_RATE = 1.f / 60.f;
+    bool m_abort = false;
     size_t m_dataSoFar = 0;
     size_t m_totalData = 0;
     double m_invTotalData = 0.;
     std::string m_currentFile;
     xe::Timer m_timer;
+    sf::Vector2i m_mousePos;
 
     const float BAR_WIDTH = 350;
     const float BAR_HEIGHT = 25;
+
+    const float X_BOX_WIDTH = 20;
+    const float X_BOX_HEIGHT = 2;
+
+    sf::Color m_accentColor = { 228, 75, 77, 255 };
     std::unique_ptr<sf::RenderWindow> m_window = nullptr;
     sf::RectangleShape m_handleBar;
     sf::RectangleShape m_backgroundBar;
     sf::RectangleShape m_progressBar;
+    sf::RectangleShape m_exitButton;
+    sf::RectangleShape m_xBoxA;
+    sf::RectangleShape m_xBoxB;
+    sf::Text m_titleText;
     sf::Text m_headingText;
     sf::Text m_infoText;
+    sf::Text m_percentText;
     sf::Font m_font;
 
     std::string DataStr(const size_t size)
@@ -98,35 +119,150 @@ class App
         return result;
     }
 
+    std::string PercentStr(float factor)
+    {
+        factor *= 100.f;
+        std::string result = std::to_string(factor);
+        size_t dotPos = result.find('.');
+        if (dotPos == std::string::npos)
+        {
+            result += ".0";
+        }
+        else
+        {
+            result = result.substr(0, dotPos + 2);
+        }
+        
+        result += "%";
+        return result;
+    }
+
     void SetupVisuals(const std::filesystem::path& path)
     {
-        m_window = std::make_unique<sf::RenderWindow>(sf::VideoMode(WIN_WIDTH, WIN_HEIGHT), "AutoZip", sf::Style::None);
-        m_font.loadFromFile("C:/Windows/Fonts/SegoeUI.ttf");
+        std::string fontPath;
+        if (std::filesystem::exists(_APPDATA_ + "\\AutoUnzip\\config.txt"))
+        {
+            try
+            {
+                std::ifstream file(_APPDATA_ + "\\AutoUnzip\\config.txt");
+                std::string line;
+                std::string key;
+                std::string data;
+                while (std::getline(file, line))
+                {
+                    std::stringstream stream(line);
+                    std::getline(stream, key, '=');
+                    std::getline(stream, data, '=');
+                    if (key == "font")
+                    {
+                        fontPath = data;
+                        if (data.length() < 2 || data[1] != ':')
+                            fontPath = "C:\\Windows\\Fonts\\" + fontPath;
+                    }
+                    if (key == "color")
+                    {
+                        std::stringstream colStream(data);
+                        std::string cell;
+                        std::getline(colStream, cell, ',');
+                        m_accentColor.r = std::stoi(cell);
+                        std::getline(colStream, cell, ',');
+                        m_accentColor.g = std::stoi(cell);
+                        std::getline(colStream, cell, ',');
+                        m_accentColor.b = std::stoi(cell);
+                    }
+                }
+            }
+            catch (std::exception) {}
+        }
+        else
+        {
+            std::filesystem::create_directories(_APPDATA_ + "\\AutoUnzip");
+            std::ofstream file(_APPDATA_ + "\\AutoUnzip\\config.txt");
+            file << "font=SegoeUI.ttf\ncolor=228,75,77\n";
+        }
+
+        m_window = std::make_unique<sf::RenderWindow>(sf::VideoMode(WIN_WIDTH, WIN_HEIGHT), "AutoUnzip", sf::Style::None);
+        if (fontPath.empty() || !m_font.loadFromFile(fontPath))
+        {
+            if (!m_font.loadFromFile("C:/Windows/Fonts/SegoeUI.ttf"))
+            {
+                ErrorMsg("System font 'SegoeUI' could not be found");
+                m_abort = true;
+                return;
+            }
+        }
+
+        m_titleText.setFont(m_font);
+        m_titleText.setCharacterSize(18);
+        m_titleText.setFillColor(sf::Color::White);
+        m_titleText.setString("AutoUnzip");
+        m_titleText.setPosition({ 10.f, 5.f });
 
         m_headingText.setFont(m_font);
-        m_headingText.setCharacterSize(18);
+        m_headingText.setCharacterSize(16);
         m_headingText.setFillColor(sf::Color::White);
         m_headingText.setString("Extracting: " + path.filename().u8string());
-        m_headingText.setPosition({ 10.f, HANDLE_HEIGHT + 10.f });
+        m_headingText.setPosition({ 20.f, HANDLE_HEIGHT + 10.f });
 
         m_infoText.setFont(m_font);
         m_infoText.setCharacterSize(14);
-        m_infoText.setFillColor(sf::Color::White);
-        m_infoText.setPosition({ 10.f, HANDLE_HEIGHT + 25.f + m_headingText.getLocalBounds().height });
+        m_infoText.setFillColor({200, 200, 200, 255});
+        m_infoText.setPosition({ 20.f, HANDLE_HEIGHT + 25.f + m_headingText.getLocalBounds().height });
 
-        //m_handleBar.setScale{WINDOW}
+        m_percentText.setFont(m_font);
+        m_percentText.setCharacterSize(18);
+        m_percentText.setFillColor(sf::Color::White);
+        m_percentText.setString("0.0%");
+        m_percentText.setPosition({ 20.f + BAR_WIDTH + 20.f, 150.f });
+
+        m_handleBar.setSize({ static_cast<float>(WIN_WIDTH), HANDLE_HEIGHT });
+        m_handleBar.setFillColor({ 20, 20, 20, 255 });
+
+        m_exitButton.setSize({ HANDLE_HEIGHT, HANDLE_HEIGHT });
+        m_exitButton.setPosition({ WIN_WIDTH - HANDLE_HEIGHT, 0.f });
+        m_exitButton.setFillColor(sf::Color::Red);
+
+        m_xBoxA.setSize({ X_BOX_WIDTH, X_BOX_HEIGHT });
+        m_xBoxA.setFillColor(sf::Color::White);
+        m_xBoxA.setOrigin({ X_BOX_WIDTH * 0.5f, X_BOX_HEIGHT * 0.5f });
+        m_xBoxA.setPosition({ WIN_WIDTH - (HANDLE_HEIGHT * 0.5f), HANDLE_HEIGHT * 0.5f });
+        m_xBoxA.setRotation(45.f);
+
+        m_xBoxB.setSize({ X_BOX_WIDTH, X_BOX_HEIGHT });
+        m_xBoxB.setFillColor(sf::Color::White);
+        m_xBoxB.setOrigin({ X_BOX_WIDTH * 0.5f, X_BOX_HEIGHT * 0.5f });
+        m_xBoxB.setPosition({ WIN_WIDTH - (HANDLE_HEIGHT * 0.5f), HANDLE_HEIGHT * 0.5f });
+        m_xBoxB.setRotation(-45.f);
 
         m_backgroundBar.setSize({ BAR_WIDTH, BAR_HEIGHT });
-        m_backgroundBar.setPosition({ 25.f, 150.f });
+        m_backgroundBar.setPosition({ 20.f, 150.f });
         m_backgroundBar.setFillColor({ 20, 20, 20, 255 });
 
         m_progressBar.setSize({ BAR_WIDTH * 0.25f, BAR_HEIGHT });
-        m_progressBar.setPosition({ 25.f, 150.f });
-        m_progressBar.setFillColor(sf::Color::Red);
+        m_progressBar.setPosition({ 20.f, 150.f });
+        m_progressBar.setFillColor(m_accentColor);
     }
 
     void DrawProgress(bool drawOverride = false)
     {
+        sf::Event event;
+        while (m_window->pollEvent(event))
+        {
+            if (event.type == sf::Event::Closed)
+                m_window->close();
+            if (m_window->hasFocus()
+                && event.type == sf::Event::MouseButtonPressed
+                && event.mouseButton.button == sf::Mouse::Left)
+            {
+                sf::Vector2i pos = sf::Mouse::getPosition(*m_window);
+                if (m_exitButton.getGlobalBounds().contains({ (float)pos.x, (float)pos.y }))
+                {
+                    m_window->close();
+                    return;
+                }
+            }
+        }
+
         if (m_timer.GetElapsed() < UPDATE_RATE && !drawOverride)
             return;
 
@@ -140,19 +276,30 @@ class App
 
         m_infoText.setString(info);
         m_progressBar.setSize({ static_cast<float>(BAR_WIDTH * factor), m_progressBar.getSize().y });
+        m_percentText.setString(PercentStr(factor));
 
-        sf::Event event;
-        while (m_window->pollEvent(event))
+        sf::Vector2i pos = sf::Mouse::getPosition(*m_window);
+        if (m_window->hasFocus() 
+            && m_exitButton.getGlobalBounds().contains({ (float)pos.x, (float)pos.y }))
         {
-            if (event.type == sf::Event::Closed)
-                m_window->close();
+            m_exitButton.setFillColor(sf::Color::Red);
+        }
+        else
+        {
+            m_exitButton.setFillColor(m_accentColor);
         }
 
-        m_window->clear();
+        m_window->clear({10 ,10, 10, 255});
         m_window->draw(m_headingText);
         m_window->draw(m_infoText);
         m_window->draw(m_backgroundBar);
         m_window->draw(m_progressBar);
+        m_window->draw(m_percentText);
+        m_window->draw(m_handleBar);
+        m_window->draw(m_exitButton);
+        m_window->draw(m_xBoxA);
+        m_window->draw(m_xBoxB);
+        m_window->draw(m_titleText);
         m_window->display();
     }
 
@@ -166,10 +313,11 @@ class App
     bool IsSingleRootFolderInZip(const std::filesystem::path& zipPath, std::filesystem::path& out_extractPath)
     {
         std::string newRootName;
-        unzFile zipFile = unzOpen(zipPath.u8string().c_str());
+        unzFile zipFile = unzOpen(zipPath.generic_string().c_str());
         if (!zipFile)
         {
-            std::cerr << "Failed to open zip file: " << zipPath << std::endl;
+            ErrorMsg("Failed to open zip file to gather info: " + zipPath.u8string());
+            m_abort = true;
             return false;
         }
 
@@ -178,8 +326,9 @@ class App
 
         if (unzGoToFirstFile(zipFile) != UNZ_OK)
         {
-            std::cerr << "Failed to go to first file in zip" << std::endl;
+            ErrorMsg("Failed to go to first file in zip");
             unzClose(zipFile);
+            m_abort = true;
             return false;
         }
         do
@@ -188,8 +337,10 @@ class App
             unz_file_info fileInfo;
             if (unzGetCurrentFileInfo(zipFile, &fileInfo, filename, sizeof(filename), nullptr, 0, nullptr, 0) != UNZ_OK)
             {
-                std::cerr << "Failed to get file info" << std::endl;
-                break;
+                ErrorMsg("Failed to get file info: " + std::string(filename));
+                unzClose(zipFile);
+                m_abort = true;
+                return false;
             }
 
             std::string filePath(filename);
@@ -224,10 +375,25 @@ class App
 
     void ExtractZip(const std::string& zipPath, const std::string& extractPath, bool newRoot = false)
     {
+        if (std::filesystem::exists(extractPath))
+        {
+            std::wstring msg = L"Destination \"" + std::filesystem::path(extractPath).wstring() + L"\" already exists. Would you like to overwrite it?";
+            int mbResult = MessageBox(NULL, msg.c_str(), L"AutoUnzip - Overwrite Destination?", MB_OKCANCEL | MB_ICONQUESTION);
+
+            if (mbResult == IDOK)
+            {
+                std::filesystem::remove_all(extractPath);
+            }
+            else
+            {
+                return;
+            }
+        }
+
         unzFile zipFile = unzOpen(zipPath.c_str());
         if (!zipFile)
         {
-            std::cerr << "Failed to open zip file: " << zipPath << std::endl;
+            ErrorMsg("Failed to open zip file to extract: " + zipPath);
             return;
         }
 
@@ -240,7 +406,7 @@ class App
 
         if (unzGoToFirstFile(zipFile) != UNZ_OK)
         {
-            std::cerr << "Failed to go to first file in zip" << std::endl;
+            ErrorMsg("Failed to go to first file in zip");
             unzClose(zipFile);
             return;
         }
@@ -252,8 +418,9 @@ class App
             unz_file_info fileInfo;
             if (unzGetCurrentFileInfo(zipFile, &fileInfo, filename, sizeof(filename), nullptr, 0, nullptr, 0) != UNZ_OK)
             {
-                std::cerr << "Failed to get file info" << std::endl;
-                break;
+                ErrorMsg("Failed to get file info");
+                unzClose(zipFile);
+                return;
             }
             std::string filePath = (newRoot) ?
                 std::string(filename).substr(rootLength) :
@@ -272,8 +439,9 @@ class App
             {
                 if (unzOpenCurrentFile(zipFile) != UNZ_OK)
                 {
-                    std::cerr << "Failed to open file in zip: " << filename << std::endl;
-                    continue;
+                    ErrorMsg("Failed to open file in zip: " + std::string(filename));
+                    unzClose(zipFile);
+                    return;
                 }
 
                 m_currentFile = std::filesystem::path(fullPath).filename().u8string();
@@ -311,7 +479,22 @@ public:
         std::filesystem::path newPath;
 
         SetupVisuals(zipPath);
-        if (IsSingleRootFolderInZip(zipPath, newPath))
+        if (m_abort)
+        {
+            m_window->close();
+            m_window = nullptr;
+            return 1;
+        }
+
+        bool singleRootFolder = IsSingleRootFolderInZip(zipPath, newPath);
+        if (m_abort)
+        {
+            m_window->close();
+            m_window = nullptr;
+            return 1;
+        }
+
+        if (singleRootFolder)
         {
             ExtractZip(zipPath.u8string(), newPath.u8string(), true);
         }
@@ -322,26 +505,30 @@ public:
 
         m_window->close();
         m_window = nullptr;
-        //g_fontData.clear();
 
         return 0;
     }
 };
 
-int main(int argc, char* argv[])
+int Entry(std::vector<std::string> args)
 {
 #ifdef _DEBUG
     std::filesystem::path zipPath = DBG_FILE_PATH;
 #else // _DEBUG
-    if (argc < 2)
+    if (args.size() < 1)
     {
-        std::cerr << "No ZIP file provided." << std::endl;
+        ErrorMsg("No ZIP file provided.");
         return 1;
     }
-
-    std::filesystem::path zipPath = argv[1];
+    if (args[0].front() == '\"' && args[0].back() == '\"')
+    {
+        args[0] = args[0].substr(1, args[0].length() - 2);
+    }
+    std::filesystem::path zipPath = args[0];
 #endif // else _DEBUG
 
     App app;
     return app.Run(zipPath);
 }
+
+SetEntryPoint(Entry);
