@@ -32,8 +32,14 @@ project "Core"
 
     links
     {
-        "minizip"
+        "minizip",
+        "opengl32",
+        "gdi32",
+        "winmm",
+        "freetype"
     }
+
+    defines "SFML_STATIC"
 
     filter "system:windows"
 		systemversion "latest"
@@ -44,7 +50,10 @@ project "Core"
 		symbols "On"
         links
         {
-            "zlibstatic-d"
+            "zlibstatic-d",
+            "sfml-system-s-d",
+            "sfml-window-s-d",
+            "sfml-graphics-s-d"
         }
 
     filter "configurations:Release"
@@ -52,7 +61,10 @@ project "Core"
 		optimize "On"
         links
         {
-            "zlibstatic"
+            "zlibstatic",
+            "sfml-system-s",
+            "sfml-window-s",
+            "sfml-graphics-s"
         }
 
 project "minizip"
