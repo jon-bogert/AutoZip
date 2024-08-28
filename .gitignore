@@ -27,3 +27,16 @@ Makefile
 !premake5.exe
 
 # Required Library Exceptions
+!freetype.lib
+!sfml-graphics-s-d.lib
+!sfml-graphics-s.lib
+!sfml-system-s-d.lib
+!sfml-system-s.lib
+!sfml-window-s-d.lib
+!sfml-window-s.lib
+!yaml-cpp-d.lib
+!yaml-cpp-d.pdb
+!yaml-cpp.lib
+!zlibstatic-d.lib
+!zlibstatic-d.pdb
+!zlibstatic.lib
